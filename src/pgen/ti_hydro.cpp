@@ -330,7 +330,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         for (i=is; i<=ie; ++i) {
         	total += pow(delta(k,j,i),2.0);
         }}}
+        #ifdef MPI_PARALLEL
+        double global_total;
+        MPI_Allreduce(&total, &global_total, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        mean2 = global_total/((ie-is+1)*(je-js+1));
+        #endif
+        #ifndef MPI_PARALLEL
         mean2 = total/((ie-is+1)*(je-js+1));
+        #endif
         for (k=ks; k<=ke; ++k) {
         for (j=js; j<=je; ++j) {
         for (i=is; i<=ie; ++i) {

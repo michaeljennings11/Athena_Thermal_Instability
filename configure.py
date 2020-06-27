@@ -178,7 +178,7 @@ parser.add_argument('-h5double',
 
 # --hdf5_path argument
 parser.add_argument('--hdf5_path',
-                    default='/usr/local/lib',
+                    default='/nasa/hdf5/1.8.18_mpt/lib',
                     help='path to HDF5 libraries')
 
 # --cxx=[name] argument
