@@ -71,8 +71,8 @@ bool saturation_on;
 static Real parker_conductivity(const AthenaArray<Real> &prim, int k, int j, int i);
 void ParkerConduction(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Real> &prim,
                          const AthenaArray<Real> &bcc, int is, int ie, int js, int je, int ks, int ke);
-void PrandtlViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Real> &prim,
-                         const AthenaArray<Real> &bcc, int is, int ie, int js, int je, int ks, int ke);
+//void PrandtlViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Real> &prim,
+  //                       const AthenaArray<Real> &bcc, int is, int ie, int js, int je, int ks, int ke);
 void cooling(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
              const AthenaArray<Real> &bcc, AthenaArray<Real> &cons);
 
@@ -107,7 +107,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     else
         std::cout << "Constant Conduction" << std::endl;
 
-    EnrollViscosityCoefficient(PrandtlViscosity);
+//    EnrollViscosityCoefficient(PrandtlViscosity);
         
     saturation_on = pin->GetOrAddBoolean("problem", "saturation_on", true);
     return;
@@ -134,7 +134,10 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     int i=0,j=0,k=0,n=0,m=0,l=0;
     int iprob,
-    nkx=16,nky=8,nkz=8,nx1,nx2,nx3;
+    nkx=16,nky=8,nkz=8;
+    int nx1 = (ie-is)+1 + 2*(NGHOST);
+    int nx2 = (je-js)+1 + 2*(NGHOST);
+    int nx3 = (ke-ks)+1 + 2*(NGHOST);
     Real P_k, P0, n0, T0, kappa,chi, x1L, x2L, x3L, x12L, num,
     drho, dp,
     krho, krho_i, krho_ij, angle, phi, phi2, phi3, ksi, tmp,
@@ -142,10 +145,6 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     beta, b0, Btot=0.0,Bsum=0.0;
     //***az,***ax,***ay,amp,kx[16],ky[8],kz[8],xa,ya,za;
     int64_t iseed = -1, rseed;
-#ifdef MPI_PARALLEL
-    rseed += Globals::my_rank;
-#endif
-    std::cout << rseed << std::endl;
     // Read problem parameters
     P_k = pin->GetReal("problem","P_k"); // P/k in cgs [K/cm-3]
     n0    = pin->GetReal("problem","n0"); // number density in cgs
@@ -246,6 +245,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     if(iprob==3) {
         dp  = pin->GetReal("problem","dp"); // amplitude of pressure perturbations
         angle = atan(x2L/x1L);
+				
+				#ifdef MPI_PARALLEL
+   				 rseed += Globals::my_rank;
+				#endif
         for (k=ks; k<=ke; ++k) {
         for (j=js; j<=je; ++j) {
         for (i=is; i<=ie; ++i) {
@@ -274,6 +277,90 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         } // i for loop
         } // j for loop
         } // k for loop
+    } // if iprob==3
+
+
+    if(iprob==4) {
+//        std::cout << "(nx1,nx2) = " << nx1 << ',' <<  nx2 << std::endl;
+//        std::cout << "(is,js,ks) = " << is << js << ks << std::endl;
+        rseed = 0;
+        Real A  = pin->GetReal("problem","A"); // amplitude of pressure perturbations
+        int imax  = pin->GetReal("problem","imax"); // imax for maximum wavenumber
+        Real n = pin->GetReal("problem","n"); // spectral index
+        Real L = std::min(x1L,x2L);
+        Real kmax = imax*2.0*pi/L;
+/*        std::cout << "A = " << A << std::endl;
+        std::cout << "imax = " << imax << std::endl;
+        std::cout << "n = " << n << std::endl;
+        std::cout << "L = " << L/3.08e18 << "pc" << std::endl;*/
+        Real total = 0.0;
+        Real mean2 = 0.0;
+       /* Real **delta = new Real*[nx1];
+        for (int i = 0; i < nx1; ++i) {
+        	delta[i] = new Real[nx2];
+        }*/
+        AthenaArray<Real> delta;
+        delta.NewAthenaArray(nx3,nx2,nx1);
+        for (int ki=0; ki<=imax; ++ki) {
+        for (int kj=0; kj<=imax; ++kj) {
+                   Real k_i = ki*2.0*pi/L;
+                   Real k_j = kj*2.0*pi/L;
+                   Real phi_x = ran2(&rseed)*2.0*pi;
+                   Real phi_y = ran2(&rseed)*2.0*pi;
+                   for (k=ks; k<=ke; ++k) {
+                   for (j=js; j<=je; ++j) {
+                   for (i=is; i<=ie; ++i) {
+                    //  std::cout << "(ki,kj) = " << ki << ',' << kj << std::endl;
+                      if ((ki==0) && (kj==0)) {
+                          delta(k,j,i) = 0; } 
+                      Real x = pcoord->x1v(i);
+                      Real y = pcoord->x2v(j);
+                      Real z = pcoord->x3v(k);
+                      if ((pow(k_i,2.0)+pow(k_j,2.0)) != 0) {
+                      	delta(k,j,i) += pow((pow(k_i,2.0)+pow(k_j,2.0)),(n/2.0))*sin(x*k_i+phi_x)*sin(y*k_j+phi_y);
+                      }
+                      else {
+                     	  delta(k,j,i) = 0.0;
+                      }
+                     // std::cout << "delta(" << k << ',' << j << ',' << i << ") = " << delta(k,j,i) << std::endl;
+					         }}}	
+        }}
+        for (k=ks; k<=ke; ++k) {
+        for (j=js; j<=je; ++j) {
+        for (i=is; i<=ie; ++i) {
+        	total += pow(delta(k,j,i),2.0);
+        }}}
+        mean2 = total/((ie-is+1)*(je-js+1));
+        for (k=ks; k<=ke; ++k) {
+        for (j=js; j<=je; ++j) {
+        for (i=is; i<=ie; ++i) {
+//                    std::cout << delta[i][j] << std::endl;
+                    phydro->u(IDN,k,j,i) = rho0+rho0*delta(k,j,i)*pow((A*A/mean2),0.5);
+                    phydro->u(IM1,k,j,i) = 0.0;
+                    phydro->u(IM2,k,j,i) = 0.0;
+                    phydro->u(IM3,k,j,i) = 0.0;
+                    phydro->u(IEN,k,j,i) = P0/gam1
+                    + 0.5*(SQR(phydro->u(IM1,k,j,i)) + SQR(phydro->u(IM2,k,j,i))
+                           + SQR(phydro->u(IM3,k,j,i)))/phydro->u(IDN,k,j,i); // E = P0/(gam-1) + P0*(random # between -0.5 and +0.5)*(amplitude of pressure perturbation)/(gam-1) + (1/2)*(momentum^2)/rho0
+            
+                     #if MAGNETIC_FIELDS_ENABLED
+                     pfield->b.x1f(k,j,i) = b0 * cos(angle);
+                     if (i == ie) pfield->b.x1f(k,j,i+1) = b0 * cos(angle);
+                     
+                     pfield->b.x2f(k,j,i) = b0 * sin(angle);
+                     if (j==je) pfield->b.x2f(k,j+1,i) = b0 * sin(angle);
+                     
+                     pfield->b.x3f(k,j,i) = 0.0;
+                     if (k==ke) pfield->b.x3f(k+1,j,i) = 0.0;
+            
+                     phydro->u(IEN,k,j,i) += 0.5*(SQR(b0 * cos(angle))
+                     + SQR(b0 * sin(angle)) + SQR(0.0));
+                     #endif /* MHD */
+                    
+        } // i for loop
+        } // j for loop
+        } // k for loop
+        delta.DeleteAthenaArray();
     } // if iprob==3
 
 return;
@@ -420,10 +507,9 @@ void ParkerConduction(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<R
     }
     return;
 }
-
+/*
 void PrandtlViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<Real> &prim,
                        const AthenaArray<Real> &bcc, int is, int ie, int js, int je, int ks, int ke) {
-    std::cout << "visc test" << std::endl;
     for (int k=ks; k<=ke; ++k) {
         for (int j=js; j<=je; ++j) {
             for (int i=is; i<=ie; ++i) {
@@ -434,7 +520,7 @@ void PrandtlViscosity(HydroDiffusion *phdif, MeshBlock *pmb, const AthenaArray<R
         }
     }
     return;
-}
+}*/
 
 //========================================================================================
 //! user output variables
